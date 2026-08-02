@@ -28,6 +28,7 @@ class RideSessionManager @Inject constructor() {
         val isCadenceActive: Boolean = false,
         val speedDiscrepancy: Double? = null,
         val suggestedWheelCircumference: Int? = null,
+        val calibrationDistanceMeters: Double = 0.0,
         val lastRawPackets: List<String> = emptyList()
     )
 

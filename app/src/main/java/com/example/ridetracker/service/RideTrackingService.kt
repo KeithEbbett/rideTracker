@@ -65,6 +65,7 @@ class RideTrackingService : LifecycleService() {
     private var maxSpeedMps = 0.0
     private var totalElevationGain = 0.0
     private var lastAltitude: Double? = null
+    private var smoothedAltitude: Double? = null
     private var hrSum = 0L
     private var hrCount = 0
 
@@ -94,7 +95,8 @@ class RideTrackingService : LifecycleService() {
         const val ACTION_PAUSE = "ACTION_PAUSE"
         const val ACTION_RESUME = "ACTION_RESUME"
         const val AUTO_PAUSE_THRESHOLD_MPS = 0.5 // ~1.8 km/h
-        const val GRADIENT_WINDOW_METERS = 30.0
+        const val GRADIENT_WINDOW_METERS = 40.0
+        const val ALTITUDE_SMOOTHING_FACTOR = 0.2
         const val SENSOR_TIMEOUT_MILLIS = 3000L
         const val BATCH_SIZE = 20
     }
@@ -228,12 +230,20 @@ class RideTrackingService : LifecycleService() {
 
                     // Elevation Gain Tracking
                     val currentAltitude = location.altitude
+                    
+                    // Apply low-pass filter to altitude
+                    smoothedAltitude = if (smoothedAltitude == null) {
+                        currentAltitude
+                    } else {
+                        (currentAltitude * ALTITUDE_SMOOTHING_FACTOR) + (smoothedAltitude!! * (1.0 - ALTITUDE_SMOOTHING_FACTOR))
+                    }
+
                     lastAltitude?.let {
-                        if (currentAltitude > it) {
-                            totalElevationGain += (currentAltitude - it)
+                        if (smoothedAltitude!! > it) {
+                            totalElevationGain += (smoothedAltitude!! - it)
                         }
                     }
-                    lastAltitude = currentAltitude
+                    lastAltitude = smoothedAltitude
 
                     // Track GPS data for calibration if accuracy is good
                     if (location.accuracy < 10.0) {
@@ -265,7 +275,7 @@ class RideTrackingService : LifecycleService() {
                         timestamp = System.currentTimeMillis(),
                         latitude = location.latitude,
                         longitude = location.longitude,
-                        altitude = location.altitude,
+                        altitude = smoothedAltitude ?: location.altitude,
                         speed = location.speed.toDouble()
                     )
                     pointBuffer.add(point)
@@ -380,6 +390,10 @@ class RideTrackingService : LifecycleService() {
                 val currentMm = sharedPrefs.getInt("wheel_circumference", 2096)
                 if (currentMm != wheelCircumferenceMm) {
                     wheelCircumferenceMm = currentMm
+                    // Clear buffers so the discrepancy warning resets immediately
+                    gpsSpeedBuffer.clear()
+                    sensorSpeedBuffer.clear()
+                    rideSessionManager.updateState { it.copy(speedDiscrepancy = null) }
                 }
 
                 if (System.currentTimeMillis() - lastSensorUpdateMillis > SENSOR_TIMEOUT_MILLIS) {
@@ -474,16 +488,29 @@ class RideTrackingService : LifecycleService() {
             gradientWindow.removeAt(0)
         }
 
-        if (gradientWindow.size < 2) return 0.0
+        if (gradientWindow.size < 5) return 0.0 // Need more points for regression stability
 
-        val first = gradientWindow.first()
-        val last = gradientWindow.last()
+        // Linear Regression to find the best-fit slope
+        val n = gradientWindow.size
+        var sumX = 0.0
+        var sumY = 0.0
+        var sumXY = 0.0
+        var sumX2 = 0.0
 
-        val distanceDelta = last.first - first.first
-        if (distanceDelta < 5.0) return 0.0 // Don't calculate for very small distances to avoid noise
+        gradientWindow.forEach { (x, y) ->
+            sumX += x
+            sumY += y
+            sumXY += x * y
+            sumX2 += x * x
+        }
 
-        val altitudeDelta = last.second - first.second
-        return (altitudeDelta / distanceDelta) * 100.0
+        val denominator = (n * sumX2) - (sumX * sumX)
+        if (denominator == 0.0) return 0.0
+
+        val slope = ((n * sumXY) - (sumX * sumY)) / denominator
+        
+        // Convert slope (rise/run) to percentage
+        return (slope * 100.0).coerceIn(-25.0, 25.0) // Clamp to realistic cycling gradients
     }
 
     private fun checkDiscrepancy() {
@@ -499,12 +526,15 @@ class RideTrackingService : LifecycleService() {
     }
 
     private fun checkCalibration() {
-        // Only suggest calibration after 1km of good GPS data
-        if (totalGpsDistanceForCalibration > 1000.0 && totalWheelRevsForCalibration > 0) {
+        // Update progress in session manager
+        rideSessionManager.updateState { it.copy(calibrationDistanceMeters = totalGpsDistanceForCalibration) }
+
+        // Only suggest calibration after 300m of good GPS data
+        if (totalGpsDistanceForCalibration > 300.0 && totalWheelRevsForCalibration > 0) {
             val suggested = (totalGpsDistanceForCalibration * 1000.0 / totalWheelRevsForCalibration).toInt()
             
             // If suggested is significantly different from current, update UI state
-            if (kotlin.math.abs(suggested - wheelCircumferenceMm) > 20) {
+            if (kotlin.math.abs(suggested - wheelCircumferenceMm) > 5) {
                 rideSessionManager.updateState { it.copy(suggestedWheelCircumference = suggested) }
             }
         }

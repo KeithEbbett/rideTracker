@@ -59,6 +59,9 @@ class RideViewModel @Inject constructor(
     private val _isBatterySaver = MutableStateFlow(sharedPrefs.getBoolean("battery_saver", false))
     val isBatterySaver = _isBatterySaver.asStateFlow()
 
+    private val _isKeepScreenOn = MutableStateFlow(sharedPrefs.getBoolean("keep_screen_on", false))
+    val isKeepScreenOn = _isKeepScreenOn.asStateFlow()
+
     private val _pairedHrMac = MutableStateFlow(sharedPrefs.getString("hr_sensor_mac", null))
     val pairedHrMac = _pairedHrMac.asStateFlow()
 
@@ -108,6 +111,11 @@ class RideViewModel @Inject constructor(
             _isHighContrast.value = false
             sharedPrefs.edit().putBoolean("is_high_contrast", false).apply()
         }
+    }
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        _isKeepScreenOn.value = enabled
+        sharedPrefs.edit().putBoolean("keep_screen_on", enabled).apply()
     }
 
     fun toggleTracking() {

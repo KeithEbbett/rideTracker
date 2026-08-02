@@ -1,7 +1,6 @@
-# Task List - Enhanced Button Controls
+# Task List - Stable Road Gradient Calculation
 
-- [x] Update `RideSessionManager` with manual pause state
-- [x] Implement Pause/Resume logic in `RideTrackingService`
-- [x] Add pause/resume/finish methods to `RideViewModel`
-- [x] Refactor `DashboardScreen` button for tap/long-press actions
-- [x] Verify functionality and build project
+- [x] Implement altitude smoothing logic in `RideTrackingService`
+- [x] Replace simple gradient calculation with Linear Regression algorithm
+- [x] Update constants and window size for stability
+- [x] Verify stable gradient readings on device

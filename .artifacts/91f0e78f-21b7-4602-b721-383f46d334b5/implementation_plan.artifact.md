@@ -1,46 +1,35 @@
-# Implementation Plan - Enhanced Button Controls (Start/Pause/Finish)
+# Implementation Plan - Stable Road Gradient Calculation
 
-The goal is to implement a more standard cycling computer button flow:
-1.  **Start**: Begins the ride.
-2.  **Pause**: Manually pauses the timer and distance accumulation.
-3.  **Resume**: Continues the ride from a manual pause.
-4.  **Finish**: Ends and saves the ride (triggered by a long press while paused).
+The goal is to fix the erratic road gradient readings by implementing a more robust calculation algorithm. Instead of comparing just two points, we will use all data points in a 40-meter window to calculate a "best-fit" slope using Linear Regression.
 
 ## User Review Required
 
-> [!IMPORTANT]
-> - **States**: The button will now have three distinct labels: **START RIDE**, **PAUSE**, and **RESUME**.
-> - **Long Press**: To prevent accidental ride endings, you must **long-press (hold for 1 second)** the button while it's in the "Paused" state to finish and save your ride.
+> [!TIP]
+> - **Smoothing**: I am adding a low-pass filter to the raw barometric data to remove "jitter" before it even reaches the gradient calculator.
+> - **Linear Regression**: This method effectively ignores outlier data points (noise), resulting in a much steadier percentage on your screen.
 
 ## Proposed Changes
 
-### 1. State Management
-
-#### [MODIFY] [RideSessionManager.kt](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/data/RideSessionManager.kt)
-- Add `isManuallyPaused: Boolean = false` to `RideState`.
-- Manual pause is "sticky" and overrides auto-pause logic.
-
-### 2. Service Logic
+### 1. Tracking Service (RideTrackingService.kt)
 
 #### [MODIFY] [RideTrackingService.kt](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/service/RideTrackingService.kt)
-- Add `ACTION_PAUSE` and `ACTION_RESUME` intents.
-- Update the timer and distance logic to only accumulate when `isTracking == true` AND `isAutoPaused == false` AND `isManuallyPaused == false`.
-- Update notifications to show "Paused" when manually paused.
-
-### 3. User Interface
-
-#### [MODIFY] [RideViewModel.kt](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/ui/RideViewModel.kt)
-- Add `pauseRide()`, `resumeRide()`, and `finishRide()` methods that send the appropriate intents to the service.
-
-#### [MODIFY] [DashboardScreen.kt](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/ui/DashboardScreen.kt)
-- Implement logic to show the correct button label based on state.
-- Use `Modifier.pointerInput` or `Modifier.combinedClickable` to detect both **Taps** (Pause/Resume) and **Long Presses** (Finish).
+- **New Constants**:
+    - Increase `GRADIENT_WINDOW_METERS` to **40.0**.
+    - Add `ALTITUDE_SMOOTHING_FACTOR` (e.g., 0.2) for a low-pass filter.
+- **Filtering Logic**:
+    - Implement a `smoothedAltitude` variable.
+    - Every altitude update, update `smoothedAltitude = (current * factor) + (old * (1 - factor))`.
+- **Linear Regression Algorithm**:
+    - Replace the simple `calculateGradient` logic.
+    - The new function will sum up the distance ($x$) and altitude ($y$) for all points in the 40m window.
+    - It will calculate the slope ($m$) using the formula: $m = \frac{n\sum(xy) - \sum x \sum y}{n\sum(x^2) - (\sum x)^2}$.
+    - This provides a much more stable average gradient over the window.
 
 ## Verification Plan
 
 ### Manual Verification
 - Deploy to Pixel 9 Pro XL.
-- Tap **START RIDE**: Verify metrics begin.
-- Tap **PAUSE**: Verify timer stops and button changes to **RESUME**.
-- Tap **RESUME**: Verify tracking continues.
-- Tap **PAUSE**, then **Long Press**: Verify the ride ends, saves to history, and returns to the initial state.
+- Test in a variety of environments:
+    - **Flat ground**: Verify the gradient stays near 0.0% without jumping to 2-3% randomly.
+    - **Consistent climb**: Verify the reading remains steady (e.g., staying at 5.5% rather than swinging between 3% and 8%).
+    - **Stop**: Verify the gradient resets or stays stable when not moving.

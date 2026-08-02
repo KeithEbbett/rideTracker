@@ -1,33 +1,29 @@
-# Walkthrough - Enhanced Button Controls
+# Walkthrough - Stable Road Gradient Calculation
 
-I have overhauled the dashboard controls to give you a more professional cycling computer experience. The button now intelligently changes its role based on the current state of your ride.
+I have implemented a more robust road gradient calculation system to ensure that your readings are steady and accurate, even in noisy environments.
 
-## New Control Flow
+## Technical Improvements
 
-### 1. The Dynamic Dashboard Button
-The main button at the bottom of the **[DashboardScreen.kt](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/ui/DashboardScreen.kt)** now has three distinct states:
-- **START RIDE**: Shown when no ride is active. Tap to begin tracking.
-- **PAUSE**: Shown while you are actively tracking. Tap to manually pause the session.
-- **RESUME**: Shown while the ride is manually paused. Tap to continue tracking.
+### 1. Linear Regression (Best-Fit) Algorithm
+Instead of just comparing the start and end of your path, the app now uses **Linear Regression** across a **40-meter rolling window**.
+- **How it works**: The app looks at every altitude and distance point collected over the last 40 meters. It calculates the mathematical "best-fit" line through those points.
+- **Benefit**: This effectively "ignores" outlier data or minor sensor blips, resulting in a much more stable percentage that doesn't flicker wildly.
 
-### 2. Manual Pause Logic
-In **[RideTrackingService.kt](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/service/RideTrackingService.kt)**, I implemented a "Manual Pause" mode.
-- **Accuracy**: When manually paused, the app completely stops accumulating time and distance.
-- **Priority**: Manual pause overrides the "Auto-Pause" logic, giving you total control over when the timer runs.
-- **Notifications**: Your phone's status bar will clearly show "Paused" when you've manually stopped the clock.
+### 2. Low-Pass Altitude Filtering
+I added a digital **Low-Pass Filter** to the raw barometric data.
+- **The Filter**: It uses a smoothing factor (`0.2`) to blend new readings with previous ones.
+- **Benefit**: This removes the high-frequency "jitter" that is natural to barometric sensors, ensuring the altitude data used for gradient and elevation gain is clean and reliable.
 
-### 3. Safety-Focused "Finish" Action
-To prevent accidentally ending a ride mid-way (which can happen with a simple tap), I have implemented a **Long-Press** requirement:
-- **How it works**: To finish and save your ride, you must first **PAUSE** the ride.
-- **The Action**: While in the "RESUME" state, **press and hold the button for 1 second**.
-- **Visual Aid**: A helpful "Hold to Finish" sub-label appears under the RESUME text to guide you.
-
-## How to Test
-1. Open the app and tap **START RIDE**.
-2. Tap the button again; it should change to **PAUSE** and then immediately to **RESUME**. Notice the timer stops.
-3. Tap **RESUME** to verify the timer continues.
-4. Tap **PAUSE**, then **Press and Hold** the button for 1 second.
-5. The ride should end, save to your history, and the button will return to **START RIDE**.
+### 3. Safety Clamping
+I implemented realistic "clamping" for the gradient display.
+- **Range**: The gradient is limited to **±25%**.
+- **Reason**: This prevents extreme, unrealistic spikes (e.g., 80% gradient) from appearing if the GPS loses signal momentarily, maintaining a professional look and feel.
 
 ## Results
-This multi-state button provides a much safer and more robust interface for when you're on the move, ensuring that ending a ride is a deliberate, two-step action.
+- **Smoothness**: You will notice the gradient number changes more gradually and accurately reflects the actual slope of the road.
+- **Accuracy**: Elevation gain calculations are now more precise because they are based on filtered, noise-free altitude data.
+
+## How to Test
+1. Take the app for a ride on a road with a known steady incline.
+2. Observe the gradient reading—it should settle into a stable number (e.g., 5.0%) rather than bouncing between 2% and 8%.
+3. Verify that on flat ground, the reading stays very close to 0.0%.

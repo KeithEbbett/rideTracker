@@ -92,7 +92,10 @@ fun DashboardScreen(
                 AlertDialog(
                     onDismissRequest = { showMismatchDialog = false },
                     title = { Text("Speed Mismatch Detected") },
-                    text = { Text("Your wheel sensor and GPS speed differ by more than 10%. This usually means your Wheel Circumference setting is incorrect.") },
+                    text = { 
+                        val percent = ((rideState.speedDiscrepancy ?: 0.0) * 100).toInt()
+                        Text("Your wheel sensor and GPS speed differ by $percent%. This usually means your Wheel Circumference setting is incorrect.") 
+                    },
                     confirmButton = {
                         TextButton(onClick = { 
                             showMismatchDialog = false
