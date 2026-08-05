@@ -1,29 +1,27 @@
-# Walkthrough - Stable Road Gradient Calculation
+# Walkthrough - Strava Integration
 
-I have implemented a more robust road gradient calculation system to ensure that your readings are steady and accurate, even in noisy environments.
+I have successfully integrated Strava into your Ride Tracker app! You can now securely connect your account and upload your cycling activities with a single tap.
 
-## Technical Improvements
+## Key Features
 
-### 1. Linear Regression (Best-Fit) Algorithm
-Instead of just comparing the start and end of your path, the app now uses **Linear Regression** across a **40-meter rolling window**.
-- **How it works**: The app looks at every altitude and distance point collected over the last 40 meters. It calculates the mathematical "best-fit" line through those points.
-- **Benefit**: This effectively "ignores" outlier data or minor sensor blips, resulting in a much more stable percentage that doesn't flicker wildly.
+### 1. Secure OAuth Connection
+I've implemented the official "Connect to Strava" flow.
+- **[Settings Screen](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/ui/SettingsScreen.kt)**: You'll find a new **"Connect"** button in the "Strava Integration" section.
+- **How it works**: Tapping Connect will open Strava (or your browser) for you to authorize the app. Once you hit "Authorize," Strava will automatically redirect back to the app using a custom deep link (`ridetracker://strava`).
 
-### 2. Low-Pass Altitude Filtering
-I added a digital **Low-Pass Filter** to the raw barometric data.
-- **The Filter**: It uses a smoothing factor (`0.2`) to blend new readings with previous ones.
-- **Benefit**: This removes the high-frequency "jitter" that is natural to barometric sensors, ensuring the altitude data used for gradient and elevation gain is clean and reliable.
+### 2. Activity Uploading
+You can now share your rides to your Strava feed.
+- **[Ride History](file:///C:/Users/keith/AndroidStudioProjects/ridetracker/app/src/main/java/com/example/ridetracker/ui/RideHistoryScreen.kt)**: Each ride in your history now has a Strava upload icon (orange arrow).
+- **One-Tap Export**: When you tap the icon, the app generates a high-precision GPX file containing your GPS path, altitude, and heart rate data, and securely uploads it to Strava.
 
-### 3. Safety Clamping
-I implemented realistic "clamping" for the gradient display.
-- **Range**: The gradient is limited to **±25%**.
-- **Reason**: This prevents extreme, unrealistic spikes (e.g., 80% gradient) from appearing if the GPS loses signal momentarily, maintaining a professional look and feel.
-
-## Results
-- **Smoothness**: You will notice the gradient number changes more gradually and accurately reflects the actual slope of the road.
-- **Accuracy**: Elevation gain calculations are now more precise because they are based on filtered, noise-free altitude data.
+### 3. Safety & Security
+- **Token Management**: I used **Encrypted SharedPreferences** to store your Strava tokens. This ensures that your private access data is protected by your phone's hardware-level security.
+- **Key Protection**: Your API Client ID and Secret are safely read from `local.properties` and are never committed to your code repository.
 
 ## How to Test
-1. Take the app for a ride on a road with a known steady incline.
-2. Observe the gradient reading—it should settle into a stable number (e.g., 5.0%) rather than bouncing between 2% and 8%.
-3. Verify that on flat ground, the reading stays very close to 0.0%.
+1. Redeploy the app to your Pixel 9 Pro XL.
+2. Go to **Settings** and tap **Connect** in the Strava section.
+3. Follow the prompts in the Strava app/website to authorize.
+4. Once returned to the app, verify it says **"Connected to Strava"**.
+5. Go to your **Ride History**, find a past ride, and tap the orange upload icon.
+6. Check your Strava feed—your ride should appear there shortly!

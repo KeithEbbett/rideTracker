@@ -21,10 +21,19 @@ fun RideDetailsScreen(
     var ride by remember { mutableStateOf<Ride?>(null) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val isMetric by viewModel.isMetric.collectAsState()
+    val stravaMessage by viewModel.stravaMessage.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
     val dateFormat = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
 
     LaunchedEffect(rideId) {
         ride = viewModel.getRideById(rideId)
+    }
+
+    LaunchedEffect(stravaMessage) {
+        stravaMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearStravaMessage()
+        }
     }
 
     if (showDeleteConfirmation) {
@@ -52,69 +61,81 @@ fun RideDetailsScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "Ride Details", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(24.dp))
-
-        ride?.let { r ->
-            Text(
-                text = dateFormat.format(Date(r.startTime)),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val speedFactor = if (isMetric) 3.6 else 2.23694
-            val speedUnit = if (isMetric) "km/h" else "mph"
-            val distanceFactor = if (isMetric) 1000.0 else 1609.34
-            val distanceUnit = if (isMetric) "km" else "miles"
-            val elevationFactor = if (isMetric) 1.0 else 3.28084
-            val elevationUnit = if (isMetric) "m" else "ft"
-
-            MetricRow(label = "Distance", value = "%.2f %s".format(r.distance / distanceFactor, distanceUnit))
-            MetricRow(label = "Avg Speed", value = "%.1f %s".format(r.avgSpeed * speedFactor, speedUnit))
-            MetricRow(label = "Max Speed", value = "%.1f %s".format(r.maxSpeed * speedFactor, speedUnit))
-            MetricRow(label = "Elevation Gain", value = "%.0f %s".format(r.totalElevationGain * elevationFactor, elevationUnit))
-            if (r.averageHeartRate != null) {
-                MetricRow(label = "Avg Heart Rate", value = "${r.averageHeartRate} bpm")
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
             Button(
-                onClick = { viewModel.uploadToStrava(r) },
+                onClick = onBack,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .padding(16.dp)
             ) {
-                Text("Upload to Strava")
+                Text("Back")
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = { showDeleteConfirmation = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Delete Ride")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-        } ?: run {
-            CircularProgressIndicator()
         }
-
-        Button(
-            onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Back")
+            Text(text = "Ride Details", style = MaterialTheme.typography.headlineMedium)
+            Spacer(modifier = Modifier.height(24.dp))
+
+            ride?.let { r ->
+                Text(
+                    text = dateFormat.format(Date(r.startTime)),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val speedFactor = if (isMetric) 3.6 else 2.23694
+                val speedUnit = if (isMetric) "km/h" else "mph"
+                val distanceFactor = if (isMetric) 1000.0 else 1609.34
+                val distanceUnit = if (isMetric) "km" else "miles"
+                val elevationFactor = if (isMetric) 1.0 else 3.28084
+                val elevationUnit = if (isMetric) "m" else "ft"
+
+                MetricRow(label = "Distance", value = "%.2f %s".format(r.distance / distanceFactor, distanceUnit))
+                MetricRow(label = "Avg Speed", value = "%.1f %s".format(r.avgSpeed * speedFactor, speedUnit))
+                MetricRow(label = "Max Speed", value = "%.1f %s".format(r.maxSpeed * speedFactor, speedUnit))
+                MetricRow(label = "Elevation Gain", value = "%.0f %s".format(r.totalElevationGain * elevationFactor, elevationUnit))
+                if (r.averageHeartRate != null) {
+                    MetricRow(label = "Avg Heart Rate", value = "${r.averageHeartRate} bpm")
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                val isStravaConnected by viewModel.isStravaConnected.collectAsState()
+                if (isStravaConnected) {
+                    Button(
+                        onClick = { viewModel.uploadToStrava(r) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFC4C02))
+                    ) {
+                        Text("Upload to Strava")
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = { showDeleteConfirmation = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete Ride")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+            } ?: run {
+                CircularProgressIndicator()
+            }
         }
     }
 }

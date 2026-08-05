@@ -1,5 +1,10 @@
 package com.example.ridetracker.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -30,6 +35,17 @@ fun DashboardScreen(
     val rideState by viewModel.rideState.collectAsState()
     val isMetric by viewModel.isMetric.collectAsState()
     var showMismatchDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
 
     val speedValue = if (isMetric) rideState.speedMps * 3.6 else rideState.speedMps * 2.23694
     val speedUnit = if (isMetric) "km/h" else "mph"
@@ -63,7 +79,11 @@ fun DashboardScreen(
                 Icon(
                     imageVector = Icons.Default.Speed,
                     contentDescription = null,
-                    tint = if (rideState.isSpeedActive) Color.Green else Color.Gray,
+                    tint = when (rideState.cscStatus) {
+                        RideSessionManager.SensorStatus.CONNECTED -> if (rideState.isSpeedActive) Color.Green else Color.Gray
+                        RideSessionManager.SensorStatus.CONNECTING -> Color.Yellow.copy(alpha = alpha)
+                        else -> Color.Gray
+                    },
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -136,13 +156,21 @@ fun DashboardScreen(
                 label = "Heart Rate", 
                 value = "${rideState.heartRate} bpm",
                 icon = Icons.Default.Favorite,
-                iconColor = if (rideState.isHrConnected) Color.Green else Color.Gray
+                iconColor = when (rideState.hrStatus) {
+                    RideSessionManager.SensorStatus.CONNECTED -> Color.Green
+                    RideSessionManager.SensorStatus.CONNECTING -> Color.Yellow.copy(alpha = alpha)
+                    else -> Color.Gray
+                }
             )
             MetricItem(
                 label = "Cadence", 
                 value = "${rideState.cadence} rpm",
                 icon = Icons.AutoMirrored.Filled.DirectionsBike,
-                iconColor = if (rideState.isCadenceActive) Color.Green else Color.Gray
+                iconColor = when (rideState.cscStatus) {
+                    RideSessionManager.SensorStatus.CONNECTED -> if (rideState.isCadenceActive) Color.Green else Color.Gray
+                    RideSessionManager.SensorStatus.CONNECTING -> Color.Yellow.copy(alpha = alpha)
+                    else -> Color.Gray
+                }
             )
         }
 

@@ -13,8 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.ridetracker.data.RideSessionManager
 import com.example.ridetracker.data.sensor.BleManager
 import com.example.ridetracker.ui.RideViewModel.SensorRole
 
@@ -74,20 +76,35 @@ fun SettingsScreen(
 
             item {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text(text = "Paired Sensors", style = MaterialTheme.typography.titleLarge)
+                        Text(text = "Paired Sensors", style = MaterialTheme.typography.titleLarge)
                 val pairedHr by viewModel.pairedHrMac.collectAsState()
                 val pairedSpeed by viewModel.pairedSpeedMac.collectAsState()
                 val pairedCadence by viewModel.pairedCadenceMac.collectAsState()
 
                 if (pairedHr != null) {
-                    PairedSensorItem(label = "❤️ Heart Rate", mac = pairedHr!!, onClear = { viewModel.clearSensor(SensorRole.HEART_RATE) })
+                    PairedSensorItem(
+                        label = "❤️ Heart Rate", 
+                        mac = pairedHr!!, 
+                        status = rideState.hrStatus,
+                        onClear = { viewModel.clearSensor(SensorRole.HEART_RATE) }
+                    )
                 }
                 if (pairedSpeed != null) {
-                    PairedSensorItem(label = "💨 Speed Sensor", mac = pairedSpeed!!, onClear = { viewModel.clearSensor(SensorRole.SPEED) })
+                    PairedSensorItem(
+                        label = "💨 Speed Sensor", 
+                        mac = pairedSpeed!!, 
+                        status = rideState.cscStatus,
+                        onClear = { viewModel.clearSensor(SensorRole.SPEED) }
+                    )
                 }
                 if (pairedCadence != null) {
                     if (pairedCadence != pairedSpeed) {
-                        PairedSensorItem(label = "🚲 Cadence Sensor", mac = pairedCadence!!, onClear = { viewModel.clearSensor(SensorRole.CADENCE) })
+                        PairedSensorItem(
+                            label = "🚲 Cadence Sensor", 
+                            mac = pairedCadence!!, 
+                            status = rideState.cscStatus,
+                            onClear = { viewModel.clearSensor(SensorRole.CADENCE) }
+                        )
                     } else {
                         Text(text = "Combined Speed & Cadence Active", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
                     }
@@ -258,6 +275,60 @@ fun SettingsScreen(
 
             item {
                 Spacer(modifier = Modifier.height(24.dp))
+                Text(text = "Strava Integration", style = MaterialTheme.typography.titleLarge)
+                val isStravaConnected by viewModel.isStravaConnected.collectAsState()
+                val uriHandler = LocalUriHandler.current
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = if (isStravaConnected) "Connected to Strava" else "Not connected")
+                        Text(
+                            text = if (isStravaConnected) "You can now upload rides from history." else "Connect to upload your rides automatically.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    Button(
+                        onClick = { 
+                            if (isStravaConnected) {
+                                viewModel.disconnectStrava()
+                            } else {
+                                uriHandler.openUri(viewModel.getStravaLoginUrl())
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isStravaConnected) MaterialTheme.colorScheme.errorContainer else Color(0xFFFC4C02)
+                        )
+                    ) {
+                        Text(
+                            text = if (isStravaConnected) "Disconnect" else "Connect",
+                            color = if (isStravaConnected) MaterialTheme.colorScheme.onErrorContainer else Color.White
+                        )
+                    }
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(text = "🛠 Troubleshooting", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = "Sensors not sensing? Ensure other cycling apps (Strava, Wahoo, etc.) are completely closed. Bluetooth sensors can usually only talk to one app at a time.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
                 Text(text = "Discovered Devices", style = MaterialTheme.typography.titleLarge)
             }
 
@@ -289,7 +360,12 @@ fun SettingsScreen(
 }
 
 @Composable
-fun PairedSensorItem(label: String, mac: String, onClear: () -> Unit) {
+fun PairedSensorItem(
+    label: String, 
+    mac: String, 
+    status: RideSessionManager.SensorStatus,
+    onClear: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -298,7 +374,21 @@ fun PairedSensorItem(label: String, mac: String, onClear: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
-            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = label, style = MaterialTheme.typography.bodyMedium)
+                Spacer(modifier = Modifier.width(8.dp))
+                val (statusText, statusColor) = when (status) {
+                    RideSessionManager.SensorStatus.DISCONNECTED -> "Offline" to Color.Gray
+                    RideSessionManager.SensorStatus.CONNECTING -> "Connecting..." to Color.Yellow
+                    RideSessionManager.SensorStatus.CONNECTED -> "Connected" to Color.Green
+                    RideSessionManager.SensorStatus.ERROR -> "Error" to Color.Red
+                }
+                Text(
+                    text = "($statusText)", 
+                    style = MaterialTheme.typography.labelSmall, 
+                    color = statusColor
+                )
+            }
             Text(text = mac, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
         IconButton(onClick = onClear) {

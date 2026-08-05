@@ -14,7 +14,11 @@ object GPXExporter {
     fun export(ride: Ride, points: List<RidePoint>, file: File) {
         val xml = buildString {
             append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-            append("<gpx version=\"1.1\" creator=\"RideTracker\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+            append("<gpx version=\"1.1\" creator=\"RideTracker\" \n")
+            append("  xmlns=\"http://www.topografix.com/GPX/1/1\" \n")
+            append("  xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\" \n")
+            append("  xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" \n")
+            append("  xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd\">\n")
             append("  <trk>\n")
             append("    <name>Ride on ${isoFormat.format(Date(ride.startTime))}</name>\n")
             append("    <trkseg>\n")
@@ -22,10 +26,15 @@ object GPXExporter {
                 append("      <trkpt lat=\"${point.latitude}\" lon=\"${point.longitude}\">\n")
                 append("        <ele>${point.altitude}</ele>\n")
                 append("        <time>${isoFormat.format(Date(point.timestamp))}</time>\n")
-                if (point.heartRate != null) {
+                if (point.heartRate != null || point.cadence != null) {
                     append("        <extensions>\n")
-                    append("          <gpxtpx:TrackPointExtension xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\">\n")
-                    append("            <gpxtpx:hr>${point.heartRate}</gpxtpx:hr>\n")
+                    append("          <gpxtpx:TrackPointExtension>\n")
+                    if (point.heartRate != null) {
+                        append("            <gpxtpx:hr>${point.heartRate}</gpxtpx:hr>\n")
+                    }
+                    if (point.cadence != null) {
+                        append("            <gpxtpx:cad>${point.cadence}</gpxtpx:cad>\n")
+                    }
                     append("          </gpxtpx:TrackPointExtension>\n")
                     append("        </extensions>\n")
                 }

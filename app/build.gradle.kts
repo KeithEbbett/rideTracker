@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -9,6 +11,12 @@ android {
     namespace = "com.example.ridetracker"
     compileSdk = 37
 
+    val localProperties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localProperties.load(localPropertiesFile.inputStream())
+    }
+
     defaultConfig {
         applicationId = "com.example.ridetracker"
         minSdk = 26
@@ -17,6 +25,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "STRAVA_CLIENT_ID", "\"${localProperties.getProperty("strava.client_id") ?: ""}\"")
+        buildConfigField("String", "STRAVA_CLIENT_SECRET", "\"${localProperties.getProperty("strava.client_secret") ?: ""}\"")
     }
 
     buildTypes {

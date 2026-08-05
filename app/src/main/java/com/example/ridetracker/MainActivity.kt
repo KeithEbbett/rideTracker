@@ -49,6 +49,17 @@ class MainActivity : ComponentActivity() {
             val isBatterySaver by viewModel.isBatterySaver.collectAsState()
             val isKeepScreenOn by viewModel.isKeepScreenOn.collectAsState()
 
+            // Handle incoming deep links (Strava)
+            LaunchedEffect(Unit) {
+                val data = intent?.data
+                if (data != null && data.scheme == "ridetracker" && data.host == "localhost") {
+                    val code = data.getQueryParameter("code")
+                    if (code != null) {
+                        viewModel.handleStravaCode(code)
+                    }
+                }
+            }
+
             // Keep screen on logic
             DisposableEffect(isKeepScreenOn) {
                 if (isKeepScreenOn) {

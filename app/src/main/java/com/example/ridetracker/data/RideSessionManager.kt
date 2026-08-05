@@ -9,6 +9,7 @@ import javax.inject.Singleton
 @Singleton
 class RideSessionManager @Inject constructor() {
     enum class SpeedSource { GPS, SENSOR }
+    enum class SensorStatus { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
     data class RideState(
         val durationMillis: Long = 0,
@@ -24,6 +25,8 @@ class RideSessionManager @Inject constructor() {
         val isAutoPauseEnabled: Boolean = false,
         val isHrConnected: Boolean = false,
         val isCscConnected: Boolean = false, // Legacy, keeping for compatibility during migration
+        val hrStatus: SensorStatus = SensorStatus.DISCONNECTED,
+        val cscStatus: SensorStatus = SensorStatus.DISCONNECTED,
         val isSpeedActive: Boolean = false,
         val isCadenceActive: Boolean = false,
         val speedDiscrepancy: Double? = null,

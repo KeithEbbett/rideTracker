@@ -5,6 +5,14 @@ import retrofit2.http.*
 
 interface StravaApi {
     @POST("oauth/token")
+    suspend fun getTokens(
+        @Query("client_id") clientId: String,
+        @Query("client_secret") clientSecret: String,
+        @Query("code") code: String,
+        @Query("grant_type") grantType: String = "authorization_code"
+    ): StravaTokenResponse
+
+    @POST("oauth/token")
     suspend fun refreshToken(
         @Query("client_id") clientId: String,
         @Query("client_secret") clientSecret: String,
@@ -15,9 +23,10 @@ interface StravaApi {
     @Multipart
     @POST("uploads")
     suspend fun uploadActivity(
+        @Header("Authorization") authHeader: String,
         @Part file: MultipartBody.Part,
-        @Part("data_type") dataType: String = "gpx",
-        @Part("activity_type") activityType: String = "ride"
+        @Part("data_type") dataType: okhttp3.RequestBody,
+        @Part("activity_type") activityType: okhttp3.RequestBody
     ): StravaUploadResponse
 }
 

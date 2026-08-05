@@ -1,5 +1,6 @@
 package com.example.ridetracker.ui
 
+import com.example.ridetracker.BuildConfig
 import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
 
@@ -74,6 +76,12 @@ class RideViewModel @Inject constructor(
     private val _wheelCircumference = MutableStateFlow(sharedPrefs.getInt("wheel_circumference", 2096))
     val wheelCircumference = _wheelCircumference.asStateFlow()
 
+    private val _isStravaConnected = MutableStateFlow(stravaRepository.isLoggedIn())
+    val isStravaConnected = _isStravaConnected.asStateFlow()
+
+    private val _stravaMessage = MutableStateFlow<String?>(null)
+    val stravaMessage = _stravaMessage.asStateFlow()
+
     init {
         // Sync initial state to session manager
         rideSessionManager.updateState { it.copy(isAutoPauseEnabled = _isAutoPauseEnabled.value) }
@@ -102,6 +110,8 @@ class RideViewModel @Inject constructor(
     fun setWheelCircumference(mm: Int) {
         _wheelCircumference.value = mm
         sharedPrefs.edit().putInt("wheel_circumference", mm).apply()
+        // Clear suggestion and discrepancy instantly in state
+        rideSessionManager.updateState { it.copy(suggestedWheelCircumference = null, speedDiscrepancy = null) }
     }
 
     fun setBatterySaver(enabled: Boolean) {
@@ -232,10 +242,50 @@ class RideViewModel @Inject constructor(
 
     fun uploadToStrava(ride: Ride) {
         viewModelScope.launch {
-            val points = rideRepository.getPointsForRide(ride.id).first()
-            val file = File(context.cacheDir, "ride_${ride.id}.gpx")
-            GPXExporter.export(ride, points, file)
-            stravaRepository.uploadActivity(file)
+            _stravaMessage.value = "Uploading to Strava..."
+            try {
+                val points = rideRepository.getPointsForRide(ride.id).first()
+                if (points.isEmpty()) {
+                    _stravaMessage.value = "Upload failed: No GPS data found for this ride."
+                    return@launch
+                }
+                val file = File(context.cacheDir, "ride_${ride.id}.gpx")
+                GPXExporter.export(ride, points, file)
+                stravaRepository.uploadActivity(file)
+                _stravaMessage.value = "Successfully uploaded to Strava!"
+            } catch (e: Exception) {
+                Timber.e(e, "Strava upload failed")
+                _stravaMessage.value = "Upload failed: ${e.localizedMessage}"
+            }
         }
+    }
+
+    fun clearStravaMessage() {
+        _stravaMessage.value = null
+    }
+
+    fun getStravaLoginUrl(): String {
+        return "https://www.strava.com/oauth/authorize" +
+                "?client_id=${BuildConfig.STRAVA_CLIENT_ID}" +
+                "&response_type=code" +
+                "&redirect_uri=ridetracker://localhost" +
+                "&approval_prompt=force" +
+                "&scope=read,activity:write"
+    }
+
+    fun handleStravaCode(code: String) {
+        viewModelScope.launch {
+            try {
+                stravaRepository.completeLogin(code)
+                _isStravaConnected.value = true
+            } catch (e: Exception) {
+                Timber.e(e, "Strava login failed")
+            }
+        }
+    }
+
+    fun disconnectStrava() {
+        stravaRepository.logout()
+        _isStravaConnected.value = false
     }
 }

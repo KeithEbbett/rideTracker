@@ -276,7 +276,9 @@ class RideTrackingService : LifecycleService() {
                         latitude = location.latitude,
                         longitude = location.longitude,
                         altitude = smoothedAltitude ?: location.altitude,
-                        speed = location.speed.toDouble()
+                        speed = location.speed.toDouble(),
+                        heartRate = if (currentState.heartRate > 0) currentState.heartRate else null,
+                        cadence = if (currentState.cadence > 0) currentState.cadence else null
                     )
                     pointBuffer.add(point)
                     
@@ -284,133 +286,149 @@ class RideTrackingService : LifecycleService() {
                 }
             }
 
-        // Sensor Connection Logic
-        val sharedPrefs = getSharedPreferences("ride_tracker_prefs", Context.MODE_PRIVATE)
-        wheelCircumferenceMm = sharedPrefs.getInt("wheel_circumference", 2096)
-        
-        val hrMac = sharedPrefs.getString("hr_sensor_mac", null)
-        val speedMac = sharedPrefs.getString("speed_sensor_mac", null)
-        val cadenceMac = sharedPrefs.getString("cadence_sensor_mac", null)
+            // Sensor Connection Logic
+            val sharedPrefs = getSharedPreferences("ride_tracker_prefs", Context.MODE_PRIVATE)
+            wheelCircumferenceMm = sharedPrefs.getInt("wheel_circumference", 2096)
+            
+            val hrMac = sharedPrefs.getString("hr_sensor_mac", null)
+            val speedMac = sharedPrefs.getString("speed_sensor_mac", null)
+            val cadenceMac = sharedPrefs.getString("cadence_sensor_mac", null)
 
-        val uniqueMacs = listOfNotNull(hrMac, speedMac, cadenceMac).distinct()
-        val bluetoothManager = getSystemService(BluetoothManager::class.java)
-        val adapter = bluetoothManager?.adapter
+            val uniqueMacs = listOfNotNull(hrMac, speedMac, cadenceMac).distinct()
+            val bluetoothManager = getSystemService(BluetoothManager::class.java)
+            val adapter = bluetoothManager?.adapter
 
-        if (adapter != null) {
-            uniqueMacs.forEachIndexed { index, mac ->
-                val job = launch {
-                    delay(index * 1000L) // Small delay between connection attempts
-                    try {
-                        val device = adapter.getRemoteDevice(mac)
-                        bleManager.connectToDevice(device).collectLatest { data ->
-                            lastSensorUpdateMillis = System.currentTimeMillis()
+            if (adapter != null) {
+                uniqueMacs.forEachIndexed { index, mac ->
+                    val job = launch {
+                        delay(index * 1000L) // Small delay between connection attempts
+                        val isHr = mac == hrMac
+                        
+                        rideSessionManager.updateState { state ->
+                            if (isHr) state.copy(hrStatus = RideSessionManager.SensorStatus.CONNECTING)
+                            else state.copy(cscStatus = RideSessionManager.SensorStatus.CONNECTING)
+                        }
+
+                        try {
+                            val device = adapter.getRemoteDevice(mac)
+                            bleManager.connectToDevice(device).collectLatest { data ->
+                                lastSensorUpdateMillis = System.currentTimeMillis()
+                                rideSessionManager.updateState { state ->
+                                    var newState = if (isHr) {
+                                        state.copy(hrStatus = RideSessionManager.SensorStatus.CONNECTED)
+                                    } else {
+                                        state.copy(cscStatus = RideSessionManager.SensorStatus.CONNECTED)
+                                    }
+                                    
+                                    data.rawValue?.let { raw ->
+                                        val hex = raw.joinToString("") { "%02X".format(it) }
+                                        val newPackets = (listOf(hex) + state.lastRawPackets).take(3)
+                                        newState = newState.copy(lastRawPackets = newPackets)
+                                    }
+
+                                    // Map data based on which MAC sent it and what roles it has
+                                    if (mac == hrMac) {
+                                        data.heartRate?.let { 
+                                            newState = newState.copy(heartRate = it, isHrConnected = true)
+                                            hrSum += it
+                                            hrCount++
+                                        }
+                                    }
+
+                                    if (mac == cadenceMac) {
+                                        data.crankRevolutions?.let { revs ->
+                                            data.lastCrankEventTime?.let { time ->
+                                                if (lastCrankRevolutions != null && lastCrankEventTime != null) {
+                                                    val deltaRevs = if (revs >= lastCrankRevolutions!!) revs - lastCrankRevolutions!! else (65535 - lastCrankRevolutions!!) + revs
+                                                    val deltaTime = if (time >= lastCrankEventTime!!) time - lastCrankEventTime!! else (65535 - lastCrankEventTime!!) + time
+                                                    if (deltaTime > 0) {
+                                                        val rpm = (deltaRevs.toDouble() * 1024.0 * 60.0) / deltaTime.toDouble()
+                                                        newState = newState.copy(
+                                                            cadence = rpm.toInt(), 
+                                                            isCscConnected = true,
+                                                            isCadenceActive = true
+                                                        )
+                                                    }
+                                                }
+                                                lastCrankRevolutions = revs
+                                                lastCrankEventTime = time
+                                            }
+                                        }
+                                    }
+
+                                    if (mac == speedMac) {
+                                        data.wheelRevolutions?.let { revs ->
+                                            data.lastWheelEventTime?.let { time ->
+                                                if (lastWheelRevolutions != null && lastWheelEventTime != null) {
+                                                    val deltaRevs = revs - lastWheelRevolutions!!
+                                                    val deltaTime = if (time >= lastWheelEventTime!!) time - lastWheelEventTime!! else (65535 - lastWheelEventTime!!) + time
+                                                    if (deltaTime > 0 && deltaRevs > 0) {
+                                                        totalDistance += (deltaRevs.toDouble() * wheelCircumferenceMm.toDouble() / 1000.0)
+                                                        totalWheelRevsForCalibration += deltaRevs
+                                                        val speedMps = (deltaRevs.toDouble() * wheelCircumferenceMm.toDouble() / 1000.0) / (deltaTime.toDouble() / 1024.0)
+                                                        sensorSpeedBuffer.add(speedMps)
+                                                        if (sensorSpeedBuffer.size > 5) sensorSpeedBuffer.removeAt(0)
+                                                        newState = newState.copy(
+                                                            distanceMeters = totalDistance,
+                                                            speedMps = speedMps,
+                                                            speedSource = RideSessionManager.SpeedSource.SENSOR,
+                                                            isCscConnected = true,
+                                                            isSpeedActive = true
+                                                        )
+                                                        checkCalibration()
+                                                    }
+                                                }
+                                                lastWheelRevolutions = revs
+                                                lastWheelEventTime = time
+                                            }
+                                        }
+                                    }
+                                    newState
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Timber.e(e, "Failed to connect to sensor at $mac")
                             rideSessionManager.updateState { state ->
-                                var newState = state
-                                
-                                data.rawValue?.let { raw ->
-                                    val hex = raw.joinToString("") { "%02X".format(it) }
-                                    val newPackets = (listOf(hex) + state.lastRawPackets).take(3)
-                                    newState = newState.copy(lastRawPackets = newPackets)
-                                }
-
-                                // Map data based on which MAC sent it and what roles it has
-                                if (mac == hrMac) {
-                                    data.heartRate?.let { 
-                                        newState = newState.copy(heartRate = it, isHrConnected = true)
-                                        hrSum += it
-                                        hrCount++
-                                    }
-                                }
-
-                                if (mac == cadenceMac) {
-                                    data.crankRevolutions?.let { revs ->
-                                        data.lastCrankEventTime?.let { time ->
-                                            if (lastCrankRevolutions != null && lastCrankEventTime != null) {
-                                                val deltaRevs = if (revs >= lastCrankRevolutions!!) revs - lastCrankRevolutions!! else (65535 - lastCrankRevolutions!!) + revs
-                                                val deltaTime = if (time >= lastCrankEventTime!!) time - lastCrankEventTime!! else (65535 - lastCrankEventTime!!) + time
-                                                if (deltaTime > 0) {
-                                                    val rpm = (deltaRevs.toDouble() * 1024.0 * 60.0) / deltaTime.toDouble()
-                                                    newState = newState.copy(
-                                                        cadence = rpm.toInt(), 
-                                                        isCscConnected = true,
-                                                        isCadenceActive = true
-                                                    )
-                                                }
-                                            }
-                                            lastCrankRevolutions = revs
-                                            lastCrankEventTime = time
-                                        }
-                                    }
-                                }
-
-                                if (mac == speedMac) {
-                                    data.wheelRevolutions?.let { revs ->
-                                        data.lastWheelEventTime?.let { time ->
-                                            if (lastWheelRevolutions != null && lastWheelEventTime != null) {
-                                                val deltaRevs = revs - lastWheelRevolutions!!
-                                                val deltaTime = if (time >= lastWheelEventTime!!) time - lastWheelEventTime!! else (65535 - lastWheelEventTime!!) + time
-                                                if (deltaTime > 0 && deltaRevs > 0) {
-                                                    totalDistance += (deltaRevs.toDouble() * wheelCircumferenceMm.toDouble() / 1000.0)
-                                                    totalWheelRevsForCalibration += deltaRevs
-                                                    val speedMps = (deltaRevs.toDouble() * wheelCircumferenceMm.toDouble() / 1000.0) / (deltaTime.toDouble() / 1024.0)
-                                                    sensorSpeedBuffer.add(speedMps)
-                                                    if (sensorSpeedBuffer.size > 5) sensorSpeedBuffer.removeAt(0)
-                                                    newState = newState.copy(
-                                                        distanceMeters = totalDistance,
-                                                        speedMps = speedMps,
-                                                        speedSource = RideSessionManager.SpeedSource.SENSOR,
-                                                        isCscConnected = true,
-                                                        isSpeedActive = true
-                                                    )
-                                                    checkCalibration()
-                                                }
-                                            }
-                                            lastWheelRevolutions = revs
-                                            lastWheelEventTime = time
-                                        }
-                                    }
-                                }
-                                newState
+                                if (isHr) state.copy(hrStatus = RideSessionManager.SensorStatus.ERROR)
+                                else state.copy(cscStatus = RideSessionManager.SensorStatus.ERROR)
                             }
                         }
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to connect to sensor at $mac")
                     }
+                    activeSensorJobs[mac] = job
                 }
-                activeSensorJobs[mac] = job
             }
-        }
 
-        // Watchdog and preference monitoring
-        launch {
-            while (true) {
-                delay(1000)
-                
-                // Monitor circumference changes
-                val currentMm = sharedPrefs.getInt("wheel_circumference", 2096)
-                if (currentMm != wheelCircumferenceMm) {
-                    wheelCircumferenceMm = currentMm
-                    // Clear buffers so the discrepancy warning resets immediately
-                    gpsSpeedBuffer.clear()
-                    sensorSpeedBuffer.clear()
-                    rideSessionManager.updateState { it.copy(speedDiscrepancy = null) }
-                }
+            // Watchdog and preference monitoring
+            launch {
+                while (true) {
+                    delay(1000)
+                    
+                    // Monitor circumference changes
+                    val currentMm = sharedPrefs.getInt("wheel_circumference", 2096)
+                    if (currentMm != wheelCircumferenceMm) {
+                        wheelCircumferenceMm = currentMm
+                        // Clear buffers and suggestion so the UI resets
+                        gpsSpeedBuffer.clear()
+                        sensorSpeedBuffer.clear()
+                        rideSessionManager.updateState { it.copy(speedDiscrepancy = null, suggestedWheelCircumference = null) }
+                    }
 
-                if (System.currentTimeMillis() - lastSensorUpdateMillis > SENSOR_TIMEOUT_MILLIS) {
-                    if (rideSessionManager.rideState.value.speedSource == RideSessionManager.SpeedSource.SENSOR) {
-                        rideSessionManager.updateState { 
-                            it.copy(
-                                speedSource = RideSessionManager.SpeedSource.GPS,
-                                isSpeedActive = false,
-                                isCadenceActive = false
-                            ) 
+                    if (System.currentTimeMillis() - lastSensorUpdateMillis > SENSOR_TIMEOUT_MILLIS) {
+                        if (rideSessionManager.rideState.value.speedSource == RideSessionManager.SpeedSource.SENSOR) {
+                            rideSessionManager.updateState { 
+                                it.copy(
+                                    speedSource = RideSessionManager.SpeedSource.GPS,
+                                    isSpeedActive = false,
+                                    isCadenceActive = false
+                                ) 
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
+
     private fun stopTracking() {
         rideSessionManager.setTracking(false)
         lifecycleScope.launch {
